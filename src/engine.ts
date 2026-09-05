@@ -7,14 +7,21 @@ export type RoomState={goal:string;topic:string;phase:Phase;events:RoomEvent[];c
 const wait=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
 const initial=(goal:string):RoomState=>({goal,topic:goal,phase:'idle',events:[],concepts:[],lesson:'',gap:'',question:'',answer:'',assessment:'',plan:'',activity:{researcher:'Standby',tutor:'Standby',challenger:'Standby',examiner:'Standby'},progress:{researcher:0,tutor:0,challenger:0,examiner:0}});
 
-/** Accept ordinary numbers, scientific notation, multiplication signs, superscripts, spaces and units. */
+/** Parse learner answers robustly: ordinary numbers, commas/spaces, units, e-notation and x/× 10^n notation including superscripts. */
 function parseNumericAnswer(raw:string){
   const superscriptMap:Record<string,string>={'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁻':'-'};
-  const normalized=raw.trim().replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g,c=>superscriptMap[c]??c).replace(/,/g,'').replace(/\s+/g,'').replace(/×/g,'x').replace(/\^/g,'^');
-  const scientific=normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:x|\*?10\^)([+-]?\d+)(?:[a-zA-Z]+)?$/i);
+  let normalized=raw.trim().replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g,c=>superscriptMap[c]??c).replace(/,/g,'').replace(/\s+/g,'').replace(/×/g,'x').replace(/−/g,'-').toLowerCase();
+  normalized=normalized.replace(/pa$/,'');
+  normalized=normalized.replace(/\*{1,2}/g,'*');
+
+  const scientific=normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:x\*?10\^|10\^)([+-]?\d+)$/);
   if(scientific)return Number(scientific[1])*10**Number(scientific[2]);
-  const plain=normalized.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?:[a-zA-Z]+)?$/);
-  if(plain){const value=Number.parseFloat(plain[0].replace(/[a-zA-Z]+$/,''));if(Number.isFinite(value))return value;}
+
+  const exponent=normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))[e]([+-]?\d+)$/);
+  if(exponent)return Number(exponent[1])*10**Number(exponent[2]);
+
+  const plain=normalized.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/);
+  if(plain){const value=Number.parseFloat(plain[0]);if(Number.isFinite(value))return value;}
   return Number.NaN;
 }
 
