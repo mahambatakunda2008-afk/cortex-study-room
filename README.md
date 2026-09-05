@@ -2,22 +2,43 @@
 
 > A concurrent multi-agent study room where specialized AI agents collaborate around a learner instead of taking turns in a rigid pipeline.
 
-## Hackathon prototype
+## MVP
 
-Cortex Study Room is being built as a focused demonstration of event-driven, concurrent agent collaboration.
+Cortex demonstrates four independent reactive roles:
 
-A learner gives the room a study objective. Specialized agents independently observe shared study state and contribute:
+- **Researcher**: maps concepts and prerequisites.
+- **Tutor**: teaches and repairs explanations.
+- **Challenger**: hunts gaps and broadcasts findings.
+- **Examiner**: creates diagnostics and evaluates answers.
 
-- **Researcher**: identifies concepts, prerequisites, formulas, and likely misconceptions.
-- **Tutor**: develops a learner-appropriate explanation and learning path.
-- **Challenger**: probes other agents' work for gaps, contradictions, and weak explanations.
-- **Examiner**: creates diagnostic questions and evaluates demonstrated understanding.
+The room exposes a shared state and event stream. Agents start concurrently and react to events produced by the others. The UI makes the orchestration visible instead of hiding it behind a single chatbot.
 
-The important part is the coordination model: agents can react to shared events and to other agents' observations rather than being hard-coded into a simple sequential chain.
+## Run locally
 
-## Initial target
+```bash
+npm install
+npm run dev
+```
 
-Cambridge AS Physics, with **deformation of solids** as the first end-to-end demonstration topic.
+Open the Vite URL shown in the terminal.
+
+## Demo flow
+
+1. Keep the prefilled Cambridge AS Physics goal, or enter your own.
+2. Click **Start Study Room**.
+3. Watch all four agents activate together.
+4. Watch **Challenger** emit `CONCEPT_GAP_DETECTED`.
+5. Watch **Tutor** react and repair the lesson.
+6. Answer the Examiner diagnostic with `20000000` to demonstrate evaluation.
+7. Reset and run again with another goal.
+
+## Why the MVP is local-first
+
+The orchestration layer is deterministic by design so the core demo survives network and model-provider failure. A model adapter can be added later without changing the room/event architecture.
+
+## Architecture
+
+See `docs/ARCHITECTURE.md` for the shared-state and event model.
 
 ## Status
 
