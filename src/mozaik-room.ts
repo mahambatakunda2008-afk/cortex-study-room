@@ -1,4 +1,5 @@
 import {
+  Agent,
   RuntimeState,
   SituationSpecification,
   createAgent,
@@ -16,8 +17,8 @@ export type CortexRole = 'researcher' | 'tutor' | 'challenger' | 'examiner';
  * Mozaik-native runtime seam for Cortex.
  *
  * Four agents join one shared runtime. The initial learner goal fans out into
- * four independent runLoop calls. Later model.answer events can trigger
- * selective peer reactions without a central sequential orchestrator.
+ * four independent runLoop calls. Later model.answer events trigger selective
+ * peer reactions without a central sequential orchestrator.
  */
 export class CortexRuntimeState extends RuntimeState {
   goal = '';
@@ -40,14 +41,18 @@ class WhenLearnerGoal extends SituationSpecification {
 }
 
 class WhenPeerAnswers extends SituationSpecification {
-  constructor(private readonly peerIds: Set<string>) {
+  constructor(
+    private readonly role: CortexRole,
+    private readonly ids: Partial<Record<CortexRole, string>>,
+  ) {
     super();
   }
 
   isSatisfiedBy({ event, participant }: SituationContext): boolean {
-    return event.type === 'model.answer'
-      && event.producerId !== participant.getId()
-      && this.peerIds.has(event.producerId);
+    if (event.type !== 'model.answer' || event.producerId === participant.getId()) return false;
+    return (Object.keys(this.ids) as CortexRole[]).some(
+      (candidate) => candidate !== this.role && this.ids[candidate] === event.producerId,
+    );
   }
 }
 
@@ -68,54 +73,45 @@ export function createCortexMozaikRoom(goal: string) {
 
   const human = createHuman({ name: 'Learner', capabilities: [], handlers: [] });
   const ids: Partial<Record<CortexRole, string>> = {};
-  const agents = {} as Record<CortexRole, ReturnType<typeof createAgent>>;
+  const agents = {} as Record<CortexRole, Agent>;
 
-  const makeHandlers = (role: CortexRole): SituationHandler[] => {
-    const peers = new Set(
-      (Object.keys(roleInstructions) as CortexRole[])
-        .filter((candidate) => candidate !== role)
-        .map((candidate) => ids[candidate])
-        .filter((id): id is string => Boolean(id)),
-    );
-
-    return [
-      {
-        specification: new WhenLearnerGoal(human.getId()),
-        processor: {
-          apply({ event, participant }) {
-            const agent = participant as ReturnType<typeof createAgent>;
-            const message = (event.payload as { message?: string }).message ?? goal;
-            runtime.resolveRuntime().state.lastActivity[agent.getId()] = 'Started independent analysis';
-            runLoop(agent.getId(), message, {
+  const makeHandlers = (role: CortexRole): SituationHandler[] => [
+    {
+      specification: new WhenLearnerGoal(human.getId()),
+      processor: {
+        apply({ event, participant }) {
+          if (!(participant instanceof Agent)) return;
+          const message = (event.payload as { message?: string }).message ?? goal;
+          runtime.resolveRuntime().state.lastActivity[participant.getId()] = 'Started independent analysis';
+          runLoop(participant.getId(), message, {
+            model: 'gpt-5.4',
+            context: participant.getMemory().getContext(),
+            tools: participant.getTools(),
+            streaming: true,
+          });
+        },
+      },
+    },
+    {
+      specification: new WhenPeerAnswers(role, ids),
+      processor: {
+        apply({ participant }) {
+          if (!(participant instanceof Agent)) return;
+          runtime.resolveRuntime().state.lastActivity[participant.getId()] = 'Reacting to peer output';
+          runLoop(
+            participant.getId(),
+            `A peer agent just produced a result. You are the ${role}. Reassess your work in light of the peer contribution and make the next concrete contribution to the shared learner goal: ${goal}`,
+            {
               model: 'gpt-5.4',
-              context: agent.getMemory().getContext(),
-              tools: agent.getTools(),
+              context: participant.getMemory().getContext(),
+              tools: participant.getTools(),
               streaming: true,
-            });
-          },
+            },
+          );
         },
       },
-      {
-        specification: new WhenPeerAnswers(peers),
-        processor: {
-          apply({ event, participant }) {
-            const agent = participant as ReturnType<typeof createAgent>;
-            runtime.resolveRuntime().state.lastActivity[agent.getId()] = 'Reacting to peer output';
-            runLoop(
-              agent.getId(),
-              `A peer agent just produced a result. You are the ${role}. Reassess your work in light of the peer contribution and make the next concrete contribution to the shared learner goal: ${goal}`,
-              {
-                model: 'gpt-5.4',
-                context: agent.getMemory().getContext(),
-                tools: agent.getTools(),
-                streaming: true,
-              },
-            );
-          },
-        },
-      },
-    ];
-  };
+    },
+  ];
 
   (Object.keys(roleInstructions) as CortexRole[]).forEach((role) => {
     const agent = createAgent({
@@ -131,12 +127,7 @@ export function createCortexMozaikRoom(goal: string) {
 
   runtime.join(human);
   Object.values(agents).forEach((agent) => runtime.join(agent));
-
   sendMessage(goal, human.getId());
 
-  return {
-    runtime,
-    human,
-    agents,
-  };
+  return { runtime, human, agents };
 }
