@@ -18,7 +18,7 @@ export default function App(){
  const [answer,setAnswer]=useState('');
  useEffect(()=>room.subscribe(setState),[room]);
  const start=()=>{setAnswer('');room.reset(goal);room.run()};
- const submit=()=>{if(answer.trim()&&!state.accepted)room.submitAnswer(answer)};
+ const submit=(value?:string)=>{const candidate=value??answer;if(candidate.trim()&&!state.accepted)room.submitAnswer(candidate)};
  const avg=Math.round(Object.values(state.progress).reduce((a,b)=>a+b,0)/4);
  const mastery=state.questionsAnswered?state.mastery:avg;
  return <main>
@@ -53,15 +53,15 @@ export default function App(){
  </main>
 }
 
-function QuestionPanel({state,answer,setAnswer,submit,onPractice,onReframe}:{state:RoomState;answer:string;setAnswer:(v:string)=>void;submit:()=>void;onPractice:()=>void;onReframe:()=>void}){
+function QuestionPanel({state,answer,setAnswer,submit,onPractice,onReframe}:{state:RoomState;answer:string;setAnswer:(v:string)=>void;submit:(value?:string)=>void;onPractice:()=>void;onReframe:()=>void}){
  const q=state.question;
  if(!q)return null;
  const correct=state.accepted;
  return <div className="question panel">
   <div className="qrow"><div className="qtag">EXAMINER · {q.type.toUpperCase()} · ROUND {state.questionNumber}</div>{state.mastery>0&&<span className="masterybadge">MASTERY {state.mastery}%</span>}</div>
   <h3>{q.prompt}</h3>
-  {q.options&&<div className="options">{q.options.map(option=><button key={option} className="option" disabled={correct} onClick={()=>{setAnswer(option);setTimeout(submit,0)}}>{option}</button>)}</div>}
-  {!q.options&&<div className="answer"><input disabled={correct} placeholder={q.type==='concept'?'Explain it in your own words…':'Try 20000000, 2.0 × 10⁷, 20 MPa, or 20 000 000 Pa'} value={answer} onChange={e=>setAnswer(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()}/><button onClick={submit} disabled={!answer.trim()||correct}><Send size={16}/></button></div>}
+  {q.options&&<div className="options">{q.options.map(option=><button key={option} className="option" disabled={correct} onClick={()=>{setAnswer(option);submit(option)}}>{option}</button>)}</div>}
+  {!q.options&&<div className="answer"><input disabled={correct} placeholder={q.type==='concept'?'Explain it in your own words…':'Try 20000000, 2.0 × 10⁷, 20 MPa, or 20 000 000 Pa'} value={answer} onChange={e=>setAnswer(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()}/><button onClick={()=>submit()} disabled={!answer.trim()||correct}><Send size={16}/></button></div>}
   {state.answer||state.assessment?<div className={`feedback ${correct?'correct':''}`}>{correct?<CheckCircle2 size={17}/>:<ShieldCheck size={16}/>}<span>{state.assessment}</span></div>:null}
   <div className="questionactions"><button className="ghost" onClick={onReframe}><Lightbulb size={15}/> Explain differently</button><button className="primary small" disabled={!correct} onClick={onPractice}><Zap size={15}/> {correct?'Practice next':'Practice'}</button></div>
  </div>;
