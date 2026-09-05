@@ -1,101 +1,142 @@
 import {
-  AgenticEnvironment,
-  BaseParticipant,
-  ModelContext,
-  ModelMessageItem,
-  Participant,
-  UserMessageItem,
-  runInference,
+  RuntimeState,
+  SituationSpecification,
+  createAgent,
+  createHuman,
+  defineRuntime,
+  runLoop,
   sendMessage,
+  type SituationContext,
+  type SituationHandler,
 } from '@mozaik-ai/core';
 
-/**
- * Production-facing Mozaik orchestration seam.
- * Four specialized participants start from the same learner goal, run
- * concurrently, and selectively react to peer model output through the
- * environment event bus. No central sequential agent pipeline is required.
- */
 export type CortexRole = 'researcher' | 'tutor' | 'challenger' | 'examiner';
 
-const reactivePeers: Record<CortexRole, CortexRole[]> = {
-  researcher: [],
-  tutor: ['researcher', 'challenger'],
-  challenger: ['researcher', 'tutor'],
-  examiner: ['researcher', 'tutor', 'challenger'],
-};
+/**
+ * Mozaik-native runtime seam for Cortex.
+ *
+ * Four agents join one shared runtime. The initial learner goal fans out into
+ * four independent runLoop calls. Later model.answer events can trigger
+ * selective peer reactions without a central sequential orchestrator.
+ */
+export class CortexRuntimeState extends RuntimeState {
+  goal = '';
+  lastActivity: Record<string, string> = {};
+}
 
-export class CortexParticipant extends BaseParticipant {
-  private readonly context = ModelContext.create(`cortex-${this.role}`);
-  private reacting = false;
+const runtime = defineRuntime<CortexRuntimeState>();
+let initialized = false;
 
-  constructor(
-    public readonly role: CortexRole,
-    private readonly environment: AgenticEnvironment,
-  ) {
+class WhenLearnerGoal extends SituationSpecification {
+  constructor(private readonly humanId: string) {
     super();
   }
 
-  async onMessage(message: string): Promise<void> {
-    this.context.addContextItem(UserMessageItem.create(this.rolePrompt(message)));
-    this.startInference();
-  }
-
-  async onExternalModelMessage(source: Participant, item: ModelMessageItem): Promise<void> {
-    if (!(source instanceof CortexParticipant)) return;
-    if (!reactivePeers[this.role].includes(source.role)) return;
-    if (this.reacting) return;
-
-    this.reacting = true;
-    try {
-      this.context.addContextItem(item);
-      this.context.addContextItem(
-        UserMessageItem.create(
-          `Peer update from ${source.role}. React to it now. Preserve useful work, correct contradictions, and produce the next concrete contribution for the shared study room.`,
-        ),
-      );
-      this.startInference();
-    } finally {
-      this.reacting = false;
-    }
-  }
-
-  private startInference(): void {
-    void runInference({
-      model: 'gpt-5.4',
-      context: this.context,
-      caller: this,
-      environment: this.environment,
-      streaming: true,
-    });
-  }
-
-  private rolePrompt(goal: string): string {
-    const roleInstructions: Record<CortexRole, string> = {
-      researcher: 'Research and structure the topic: concepts, prerequisites, formulas, and likely misconceptions.',
-      tutor: 'Teach the learner clearly. Build and continuously repair an explanation based on peer discoveries.',
-      challenger: 'Act as the adversarial checker. Look for conceptual gaps, contradictions, and weak explanations, then surface them immediately.',
-      examiner: 'Design diagnostic questions and assess whether the learner can actually apply the concepts.',
-    };
-    return `Learner goal: ${goal}\nYour role: ${roleInstructions[this.role]}\nWork independently first, then react to relevant peer output through the shared environment.`;
+  isSatisfiedBy({ event, participant }: SituationContext): boolean {
+    return event.type === 'message.sent'
+      && event.producerId === this.humanId
+      && event.producerId !== participant.getId();
   }
 }
 
+class WhenPeerAnswers extends SituationSpecification {
+  constructor(private readonly peerIds: Set<string>) {
+    super();
+  }
+
+  isSatisfiedBy({ event, participant }: SituationContext): boolean {
+    return event.type === 'model.answer'
+      && event.producerId !== participant.getId()
+      && this.peerIds.has(event.producerId);
+  }
+}
+
+const roleInstructions: Record<CortexRole, string> = {
+  researcher: 'Map concepts, prerequisites, formulas, and likely misconceptions. Return structured findings for the other agents.',
+  tutor: 'Teach clearly and adapt the explanation when peer findings reveal gaps or contradictions.',
+  challenger: 'Act as an adversarial checker. Hunt conceptual gaps and weak explanations, then propose concrete corrections.',
+  examiner: 'Design diagnostic questions and judge whether the learner can actually apply the concepts.',
+};
+
 export function createCortexMozaikRoom(goal: string) {
-  const environment = new AgenticEnvironment();
-  const researcher = new CortexParticipant('researcher', environment);
-  const tutor = new CortexParticipant('tutor', environment);
-  const challenger = new CortexParticipant('challenger', environment);
-  const examiner = new CortexParticipant('examiner', environment);
+  if (!initialized) {
+    runtime.initializeRuntime({ state: new CortexRuntimeState() });
+    initialized = true;
+  }
 
-  [researcher, tutor, challenger, examiner].forEach((agent) => agent.join(environment));
+  runtime.resolveRuntime().state.goal = goal;
 
-  const human = new BaseParticipant();
-  human.join(environment);
-  sendMessage(environment, goal, human);
+  const human = createHuman({ name: 'Learner', capabilities: [], handlers: [] });
+  const ids: Partial<Record<CortexRole, string>> = {};
+  const agents = {} as Record<CortexRole, ReturnType<typeof createAgent>>;
+
+  const makeHandlers = (role: CortexRole): SituationHandler[] => {
+    const peers = new Set(
+      (Object.keys(roleInstructions) as CortexRole[])
+        .filter((candidate) => candidate !== role)
+        .map((candidate) => ids[candidate])
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    return [
+      {
+        specification: new WhenLearnerGoal(human.getId()),
+        processor: {
+          apply({ event, participant }) {
+            const agent = participant as ReturnType<typeof createAgent>;
+            const message = (event.payload as { message?: string }).message ?? goal;
+            runtime.resolveRuntime().state.lastActivity[agent.getId()] = 'Started independent analysis';
+            runLoop(agent.getId(), message, {
+              model: 'gpt-5.4',
+              context: agent.getMemory().getContext(),
+              tools: agent.getTools(),
+              streaming: true,
+            });
+          },
+        },
+      },
+      {
+        specification: new WhenPeerAnswers(peers),
+        processor: {
+          apply({ event, participant }) {
+            const agent = participant as ReturnType<typeof createAgent>;
+            runtime.resolveRuntime().state.lastActivity[agent.getId()] = 'Reacting to peer output';
+            runLoop(
+              agent.getId(),
+              `A peer agent just produced a result. You are the ${role}. Reassess your work in light of the peer contribution and make the next concrete contribution to the shared learner goal: ${goal}`,
+              {
+                model: 'gpt-5.4',
+                context: agent.getMemory().getContext(),
+                tools: agent.getTools(),
+                streaming: true,
+              },
+            );
+          },
+        },
+      },
+    ];
+  };
+
+  (Object.keys(roleInstructions) as CortexRole[]).forEach((role) => {
+    const agent = createAgent({
+      name: `Cortex ${role}`,
+      capabilities: ['inference'],
+      instruction: roleInstructions[role],
+      tools: [],
+      handlers: makeHandlers(role),
+    });
+    agents[role] = agent;
+    ids[role] = agent.getId();
+  });
+
+  runtime.join(human);
+  Object.values(agents).forEach((agent) => runtime.join(agent));
+
+  sendMessage(goal, human.getId());
 
   return {
-    environment,
+    runtime,
     human,
-    agents: { researcher, tutor, challenger, examiner },
+    agents,
   };
 }
