@@ -34,7 +34,7 @@ const QUESTIONS:Question[]=[
 export class StudyRoom {
  state:RoomState; private listeners=new Set<(s:RoomState)=>void>(); private eventId=0;
  constructor(goal:string){this.state=initial(goal)}
- subscribe(fn:(s:RoomState)=>void){this.listeners.add(fn);fn(this.state);return()=>this.listeners.delete(fn)}
+ subscribe(fn:(s:RoomState)=>void){this.listeners.add(fn);fn(this.state);return()=>{this.listeners.delete(fn)}}
  private emit(kind:EventKind,message:string,agent?:AgentId){this.state={...this.state,events:[...this.state.events,{id:++this.eventId,kind,agent,message,time:Date.now()}]};this.listeners.forEach(f=>f(this.state))}
  private patch(p:Partial<RoomState>){this.state={...this.state,...p};this.listeners.forEach(f=>f(this.state))}
  private agent(agent:AgentId,activity:string,progress:number){this.patch({activity:{...this.state.activity,[agent]:activity},progress:{...this.state.progress,[agent]:progress}})}
