@@ -1,0 +1,1 @@
+Cortex Study Room is subject-aware. It detects the learner's subject and topic, selects a curriculum profile, maps prerequisites, teaches, reviews and assesses. Supported deterministic profiles currently include Physics, Chemistry, Mathematics, Computer Science and Biology. Unknown subjects use an explicit generic structure until grounded learning material is supplied.
