@@ -1,0 +1,1 @@
+Subject-aware learning room. Profiles: Physics, Chemistry, Mathematics, Computer Science, Biology. Generic fallback for unsupported subjects.
