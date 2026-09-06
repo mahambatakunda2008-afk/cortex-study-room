@@ -1,0 +1,1 @@
+Cortex Study Room is subject-aware. Current deterministic profiles: Physics, Chemistry, Mathematics, Computer Science and Biology. Unknown subjects use a transparent generic learning structure until syllabus, notes, textbook or teacher material is supplied.
