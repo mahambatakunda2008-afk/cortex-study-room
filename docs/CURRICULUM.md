@@ -1,0 +1,1 @@
+The study room no longer assumes deformation of solids. Subject detection supports Physics, Chemistry, Mathematics, Computer Science and Biology, with a transparent generic fallback. Curriculum profiles provide concepts, prerequisite graphs, instruction and diagnostics. Future syllabus ingestion can replace deterministic profiles with grounded course material.
