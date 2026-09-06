@@ -1,0 +1,1 @@
+Cortex Study Room is designed for multiple subjects, not one Physics chapter. Subject-aware profiles and a generic fallback now drive the same multi-agent engine.
