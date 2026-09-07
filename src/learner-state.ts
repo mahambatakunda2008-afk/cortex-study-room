@@ -12,6 +12,43 @@ export type ConceptEvidence = {
 
 export type LearnerModel = Record<string, ConceptEvidence>;
 
+const storagePrefix = 'cortex:learner:';
+
+function storageKey(goal: string): string {
+  const normalized = goal.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 180);
+  return storagePrefix + normalized;
+}
+
+export function loadLearnerModel(goal: string): LearnerModel {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(storageKey(goal));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as LearnerModel;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLearnerModel(goal: string, model: LearnerModel): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(storageKey(goal), JSON.stringify(model));
+  } catch {
+    // Local persistence is an enhancement, never a reason to break a study session.
+  }
+}
+
+export function clearLearnerModel(goal: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(storageKey(goal));
+  } catch {
+    // Ignore storage failures and keep the in-memory session usable.
+  }
+}
+
 export function updateLearnerModel(model: LearnerModel, topic: string, correct: boolean): LearnerModel {
   const key = topic.trim().toLowerCase();
   const previous = model[key];
